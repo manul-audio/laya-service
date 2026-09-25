@@ -10,6 +10,8 @@ Env vars:
   API_KEY      — if set, requests must send it as `Authorization: Bearer <API_KEY>`
 """
 
+import ctypes
+import gc
 import os
 from typing import Any
 
@@ -28,6 +30,17 @@ app = FastAPI(title="Laya Decision Service")
 agent = None
 
 
+def _release_freed_memory() -> None:
+    """glibc's allocator does not return freed heap pages to the OS on its own,
+    so after replacing large fp32 tensors with bf16 ones, RSS stays near the
+    transient peak unless we ask for it back explicitly."""
+    gc.collect()
+    try:
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except OSError:
+        pass  # not on glibc (e.g. different base image) — safe to skip
+
+
 @app.on_event("startup")
 def load_model() -> None:
     global agent
@@ -35,8 +48,9 @@ def load_model() -> None:
     if USE_BF16:
         # laya's own LAYA_CPU_AMP only enables torch.autocast (compute-time casting);
         # it does not shrink the resident weight memory. Casting the weights themselves
-        # is what actually halves the footprint on CPU.
+        # is what actually reduces the footprint on CPU.
         agent.model = agent.model.to(torch.bfloat16)
+        _release_freed_memory()
 
 
 class PredictRequest(BaseModel):
