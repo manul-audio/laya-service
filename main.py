@@ -14,11 +14,13 @@ import os
 from typing import Any
 
 import laya
+import torch
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
 MODEL_NAME = os.environ.get("LAYA_MODEL", "convaiinnovations/laya")
 API_KEY = os.environ.get("API_KEY")  # optional shared-secret auth
+USE_BF16 = os.environ.get("LAYA_CPU_AMP", "").lower() in ("bf16", "bfloat16")
 
 app = FastAPI(title="Laya Decision Service")
 
@@ -30,6 +32,11 @@ agent = None
 def load_model() -> None:
     global agent
     agent = laya.load(MODEL_NAME)
+    if USE_BF16:
+        # laya's own LAYA_CPU_AMP only enables torch.autocast (compute-time casting);
+        # it does not shrink the resident weight memory. Casting the weights themselves
+        # is what actually halves the footprint on CPU.
+        agent.model = agent.model.to(torch.bfloat16)
 
 
 class PredictRequest(BaseModel):
