@@ -1,3 +1,5 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.14.0+cpu
 laya
 fastapi
 uvicorn[standard]
